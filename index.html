@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Google Calendar API Quickstart</title>
+    <meta charset="utf-8" />
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 20px;
+      }
+      #authorize_button,
+      #signout_button {
+        margin: 5px;
+        padding: 8px 16px;
+      }
+      #content {
+        margin-top: 20px;
+        background: #f7f7f7;
+        padding: 10px;
+        border-radius: 6px;
+      }
+    </style>
+  </head>
+  <body>
+    <h2>Google Calendar API Quickstart</h2>
+    <script src="api.js"></script>
+
+    <!-- Buttons always exist in the DOM -->
+    <button id="authorize_button" onclick="handleAuthClick()">Authorize</button>
+    <button id="signout_button" onclick="handleSignoutClick()">Sign Out</button>
+    <button id="make_event" onclick="makeEvent()">Make Event</button>
+
+    <!-- This will always stay on screen -->
+    <pre id="content" style="white-space: pre-wrap;">Loading...</pre>
+
+
+
+    <script async defer src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
+    <script async defer src="https://accounts.google.com/gsi/client" onload="gisLoaded()"></script>
+  </body>
+</html>
+
