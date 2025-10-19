@@ -1,7 +1,6 @@
-
-    /* exported gapiLoaded, gisLoaded, handleAuthClick, handleSignoutClick */
+ /* exported gapiLoaded, gisLoaded, handleAuthClick, handleSignoutClick */
     const CLIENT_ID = '1058025034355-v633goi4ds5p6km20vo956mdrak4kt4g.apps.googleusercontent.com'
-    const API_KEY = 'AIzaSyDE7JWhe5Ub1fUDTMP7bf9IfeP_dMDWKSQ';
+    const API_KEY = process.env.apiKey;
 
     const DISCOVERY_DOC = 'https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest';
     const SCOPES = 'https://www.googleapis.com/auth/calendar';
