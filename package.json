@@ -1,0 +1,16 @@
+{
+  "name": "embedded-systems-portal-api",
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "googleapis": "^131.0.0",
+    "@vercel/blob": "latest",
+    "@vercel/kv": "latest",
+    "next": "14.2.0",
+    "typescript": "^5.3.3"
+  }
+}

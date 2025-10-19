@@ -1,0 +1,14 @@
+{
+  "build": {
+    "env": {
+      "NODE_OPTIONS": "--enable-source-maps"
+    }
+  },
+  "functions": {
+    "api/**/*.ts": {
+      "runtime": "nodejs20.x",
+      "memory": 256
+    }
+  },
+  "framework": "nextjs"
+}
