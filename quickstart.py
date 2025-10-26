@@ -52,18 +52,7 @@ def main():
       },
       'recurrence': [
         'RRULE:FREQ=DAILY;INTERVAL=2;COUNT=2'
-      ],
-      'attendees': [
-        {'email': 'lpage@example.com'},
-        {'email': 'sbrin@example.com'},
-      ],
-      'reminders': {
-        'useDefault': False,
-        'overrides': [
-          {'method': 'email', 'minutes': 24 * 60},
-          {'method': 'popup', 'minutes': 10},
-        ],
-      },
+      ]
     }
 
     event = service.events().insert(calendarId='primary', body=event).execute()
