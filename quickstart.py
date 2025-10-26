@@ -12,7 +12,8 @@ SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
 def main():
   """Shows basic usage of the Google Calendar API.
-  Prints the start and name of the next 10 events on the user's calendar.
+  Adds an event to user's calenadar then
+  prints the start and name of the next 10 events on the user's calendar.
   """
   creds = None
   # The file token.json stores the user's access and refresh tokens, and is
@@ -38,9 +39,11 @@ def main():
 
     # Call the Calendar API
     now = datetime.datetime.now(tz=datetime.timezone.utc).isoformat()
+
+    # Creates Event Object to add to Calendar
     event = {
       'summary': 'ES@P TEST EVENT',
-      'location': '800 Howard St., San Francisco, CA 94103',
+      'location': 'Purdue Bell Tower, Central Dr, West Lafayette, IN 47907',
       'description': 'A chance to hear more about Google\'s developer products.',
       'start': {
         'dateTime': '2025-11-28T09:00:00-04:00',
@@ -54,7 +57,7 @@ def main():
         'RRULE:FREQ=DAILY;INTERVAL=2;COUNT=2'
       ]
     }
-
+    # Adds Event Object to Calendar 
     event = service.events().insert(calendarId='primary', body=event).execute()
     print ('Event created: %s' % (event.get('htmlLink')))
 
