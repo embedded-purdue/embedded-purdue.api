@@ -62,13 +62,20 @@ pip install -r requirements.txt
    DISCORD_BOT_TOKEN=your_actual_bot_token_here
    ```
 
+3. (Optional) For headless server deployment, set authentication mode:
+   ```
+   HEADLESS_AUTH=true
+   ```
+
 ## Running the Bot
 
 ```bash
 python bot.py
 ```
 
-On first run, the bot will open a browser window for Google Calendar authentication.
+On first run, the bot will authenticate with Google Calendar:
+- **Local/Development**: Opens a browser window for authentication (default)
+- **Headless Server**: If `HEADLESS_AUTH=true`, prompts in console for authentication code
 
 ## Bot Commands
 

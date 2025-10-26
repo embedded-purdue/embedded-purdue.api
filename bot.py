@@ -25,6 +25,7 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 def get_calendar_service():
     """
     Authenticate and return a Google Calendar API service object.
+    Supports both interactive and headless authentication modes.
     """
     creds = None
     # The file token.json stores the user's access and refresh tokens
@@ -39,7 +40,15 @@ def get_calendar_service():
             flow = InstalledAppFlow.from_client_secrets_file(
                 "credentials.json", SCOPES
             )
-            creds = flow.run_local_server(port=0)
+            # Check if running in headless mode (no display available)
+            headless_mode = os.getenv("HEADLESS_AUTH", "false").lower() == "true"
+            
+            if headless_mode:
+                # Use console-based authentication for headless environments
+                creds = flow.run_console()
+            else:
+                # Use local server for interactive environments
+                creds = flow.run_local_server(port=0)
         # Save the credentials for the next run
         with open("token.json", "w") as token:
             token.write(creds.to_json())
