@@ -11,10 +11,8 @@ from fastapi import FastAPI, Request, HTTPException, Header, Query, File, Upload
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, HttpUrl, ValidationError, field_validator
 
-try:
-    import redis.asyncio as redis  # optional persistence
-except Exception:
-    redis = None
+
+redis = None
 
 try:
     import httpx  # for Vercel Blob uploads

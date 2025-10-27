@@ -1,3 +1,8 @@
+google-auth-oauthlib>=1.2.0
+google-auth-httplib2>=0.2.0
+google-api-python-client>=2.100.0
+discord.py>=2.3.0
+python-dotenv>=1.0.0
 # --- Core web framework ---
 fastapi==0.115.5
 uvicorn[standard]==0.30.6
