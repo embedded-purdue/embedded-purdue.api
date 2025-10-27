@@ -7,7 +7,7 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
-from fastapi import FastAPI, Request, HTTPException, Header, Query
+from fastapi import FastAPI, Request, HTTPException, Header, Query, File, UploadFile, Form
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, HttpUrl, ValidationError, field_validator
 
@@ -15,6 +15,12 @@ try:
     import redis.asyncio as redis  # optional persistence
 except Exception:
     redis = None
+
+try:
+    import httpx  # for Vercel Blob uploads
+    HTTPX_AVAILABLE = True
+except ImportError:
+    HTTPX_AVAILABLE = False
 
 app = FastAPI()
 
@@ -24,15 +30,48 @@ app = FastAPI()
 ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN") or ""
 ALLOWED_ORIGIN = os.environ.get("ALLOWED_ORIGIN", "")
 REDIS_URL = os.environ.get("REDIS_URL")
+VERCEL_BLOB_TOKEN = os.environ.get("BLOB_READ_WRITE_TOKEN") or ""  # Vercel Blob Storage token
+
+# GitHub direct-commit config (optional alternative to Vercel Blob)
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN") or ""
+GITHUB_REPO = os.environ.get("GITHUB_REPO", "embedded-purdue/embedded-purdue.github.io")
+GITHUB_BASE_BRANCH = os.environ.get("GITHUB_BASE_BRANCH", "main")
+GITHUB_MEDIA_ROOT = os.environ.get("GITHUB_MEDIA_ROOT", "public/projects")
 
 # Limits
 MAX_FILES = int(os.environ.get("MEDIA_MAX_FILES", "10"))
 MAX_FILE_SIZE = int(os.environ.get("MEDIA_MAX_FILE_SIZE", str(25 * 1024 * 1024)))     # 25MB
 MAX_TOTAL_SIZE = int(os.environ.get("MEDIA_MAX_TOTAL_SIZE", str(100 * 1024 * 1024)))  # 100MB
 
-# Allowed types/extensions
+"""Allowed MIME and extensions
+We validate both extension and type (loosely for text/*) to support a wide range of media:
+- Images: png, jpg, jpeg, webp, gif, svg
+- Video: mp4, webm
+- Docs: pdf
+- Data: csv, txt, log, json, yaml, yml, toml
+- Code: ts, tsx, js, jsx, py, c, h, cpp, hpp, ino, rs, go, java, kt, swift, sh, bash, zsh, css, scss, md, mdx
+- HTML: html, htm
+"""
 ALLOWED_IMAGE_TYPES = {"image/png", "image/jpeg", "image/webp", "image/gif", "image/svg+xml"}
-ALLOWED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg", ".md", ".markdown"}
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"}
+VIDEO_EXTENSIONS = {".mp4", ".webm"}
+DOC_EXTENSIONS = {".pdf"}
+DATA_EXTENSIONS = {".csv", ".txt", ".log", ".json", ".yaml", ".yml", ".toml"}
+CODE_EXTENSIONS = {
+    ".ts", ".tsx", ".js", ".jsx", ".py", ".c", ".h", ".cpp", ".hpp", ".ino",
+    ".rs", ".go", ".java", ".kt", ".swift", ".sh", ".bash", ".zsh", ".css", ".scss",
+    ".md", ".markdown", ".mdx",
+}
+HTML_EXTENSIONS = {".html", ".htm"}
+
+ALLOWED_EXTENSIONS = (
+    IMAGE_EXTENSIONS
+    | VIDEO_EXTENSIONS
+    | DOC_EXTENSIONS
+    | DATA_EXTENSIONS
+    | CODE_EXTENSIONS
+    | HTML_EXTENSIONS
+)
 
 MEDIA_KEY = "media:list"
 
@@ -43,6 +82,29 @@ def _ext(name: str) -> str:
 def _is_markdown(name: str, mime: str) -> bool:
     e = _ext(name)
     return e in {".md", ".markdown"} or mime in {"text/markdown"}
+
+def _mime_is_allowed(mime: str) -> bool:
+    # Images: specific whitelist (browsers sometimes send image/jpg)
+    if mime.startswith("image/"):
+        return mime in ALLOWED_IMAGE_TYPES or mime in {"image/jpg"}
+    # Videos: mp4, webm only
+    if mime in {"video/mp4", "video/webm"} or mime.startswith("video/") and mime.split("/", 1)[1] in {"mp4", "webm"}:
+        return True
+    # Text: allow any text/* (markdown, html, css, csv, shell, source, etc.)
+    if mime.startswith("text/"):
+        return True
+    # Common application types for docs/data/code
+    if mime in {
+        "application/pdf",
+        "application/json",
+        "application/javascript",
+        "application/x-yaml",
+        "application/yaml",
+        "application/toml",
+        "application/octet-stream",
+    }:
+        return True
+    return False
 
 # --------------------------------------------------------------------------------------
 # Pydantic models
@@ -63,13 +125,8 @@ class MediaFile(BaseModel):
     @field_validator("type")
     @classmethod
     def mime_allowed(cls, v: str) -> str:
-        if v.startswith("image/"):
-            # allow common images (browsers sometimes send image/jpg)
-            if v not in ALLOWED_IMAGE_TYPES and v not in {"image/jpg"}:
-                raise ValueError(f"unsupported image type: {v}")
-        else:
-            if v not in {"text/markdown", "text/plain", "application/octet-stream"}:
-                raise ValueError(f"unsupported file type: {v}")
+        if not _mime_is_allowed(v):
+            raise ValueError(f"unsupported file type: {v}")
         return v
 
 
@@ -298,3 +355,296 @@ async def save_media(
         return JSONResponse(item, status_code=201, headers=headers)
     except Exception as e:
         return JSONResponse({"error": f"Save failed: {str(e)}"}, status_code=500, headers=headers)
+
+
+@app.post("/api/media/upload")
+async def upload_media(
+    request: Request,
+    kind: str = Form(...),
+    title: str = Form(...),
+    description: str = Form(default=""),
+    files: List[UploadFile] = File(...),
+    authorization: str | None = Header(default=None),
+):
+    """
+    Direct file upload endpoint using multipart/form-data
+    
+    Form fields:
+    - kind: project | workshop | other
+    - title: Title for the media item
+    - description: Optional description
+    - files: Multiple files (images and/or markdown)
+    
+    Uploads files to Vercel Blob Storage and creates media item.
+    Supported files include images (png,jpg,jpeg,webp,gif,svg), videos (mp4,webm),
+    docs (pdf), html (html,htm), code (ts,tsx,js,jsx,py,c,cpp,ino,rs,go,java,kt,swift,sh,bash,zsh,css,scss,md,mdx),
+    and data (csv,txt,log,json,yaml,yml,toml).
+    """
+    headers = cors_headers(request.headers.get("origin"))
+    require_admin(authorization)
+    
+    # Validate inputs
+    if kind not in {"project", "workshop", "other"}:
+        raise HTTPException(status_code=400, detail="kind must be project, workshop, or other")
+    
+    if not title or len(title) > 200:
+        raise HTTPException(status_code=400, detail="title must be 1-200 characters")
+    
+    if len(files) == 0 or len(files) > MAX_FILES:
+        raise HTTPException(status_code=400, detail=f"Must upload 1-{MAX_FILES} files")
+    
+    if not VERCEL_BLOB_TOKEN:
+        raise HTTPException(status_code=500, detail="Vercel Blob Storage not configured. Set BLOB_READ_WRITE_TOKEN")
+    
+    if not HTTPX_AVAILABLE:
+        raise HTTPException(status_code=500, detail="httpx library not available for uploads")
+    
+    # Upload files to Vercel Blob
+    uploaded_files = []
+    total_size = 0
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            for file in files:
+                # Read file content
+                content = await file.read()
+                file_size = len(content)
+                
+                # Check size limits
+                if file_size > MAX_FILE_SIZE:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"{file.filename} exceeds {MAX_FILE_SIZE} bytes"
+                    )
+                
+                total_size += file_size
+                if total_size > MAX_TOTAL_SIZE:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Total upload size exceeds {MAX_TOTAL_SIZE} bytes"
+                    )
+                
+                # Validate extension
+                ext = _ext(file.filename or "")
+                if ext not in ALLOWED_EXTENSIONS:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Unsupported extension: {ext or '(none)'}"
+                    )
+
+                # Validate mime type broadly (images/videos specific, text/* allowed, common application/* allowed)
+                if not _mime_is_allowed(file.content_type or "application/octet-stream"):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Unsupported content-type: {file.content_type}"
+                    )
+                
+                # Upload to Vercel Blob
+                # https://vercel.com/docs/storage/vercel-blob/using-blob-sdk
+                blob_response = await client.post(
+                    f"https://blob.vercel-storage.com",
+                    headers={
+                        "authorization": f"Bearer {VERCEL_BLOB_TOKEN}",
+                        "x-content-type": file.content_type or "application/octet-stream",
+                    },
+                    params={
+                        "filename": file.filename,
+                    },
+                    content=content,
+                )
+                
+                if blob_response.status_code != 200:
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Blob upload failed for {file.filename}: {blob_response.text}"
+                    )
+                
+                blob_data = blob_response.json()
+                
+                uploaded_files.append(
+                    MediaFile(
+                        url=blob_data["url"],
+                        name=file.filename or "unnamed",
+                        type=file.content_type or "application/octet-stream",
+                        size=file_size,
+                    )
+                )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+    
+    # Create media item
+    markdown_files = [f for f in uploaded_files if _is_markdown(f.name, f.type)]
+    
+    # Enforce markdown policy
+    if markdown_files and kind not in {"project", "workshop"}:
+        raise HTTPException(
+            status_code=400,
+            detail="Markdown files only allowed for 'project' or 'workshop' kinds"
+        )
+    
+    item: Dict[str, Any] = MediaItem(
+        id=str(uuid.uuid4()),
+        kind=kind,
+        title=title,
+        description=description or None,
+        files=uploaded_files,
+        markdownFiles=markdown_files,
+        createdAt=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    ).model_dump()
+    
+    try:
+        await storage.add(item)
+        return JSONResponse(item, status_code=201, headers=headers)
+    except Exception as e:
+        return JSONResponse({"error": f"Save failed: {str(e)}"}, status_code=500, headers=headers)
+
+
+@app.post("/api/media/upload-gh")
+async def upload_media_to_github(
+    request: Request,
+    projectSlug: str = Form(...),
+    title: str = Form(...),
+    description: str = Form(default=""),
+    files: List[UploadFile] = File(...),
+    authorization: str | None = Header(default=None),
+):
+    """
+    Upload files directly into the website repository via GitHub Contents API.
+
+    This avoids external storage. The endpoint will:
+      1) Create a new branch from GITHUB_BASE_BRANCH
+      2) Commit uploaded files under GITHUB_MEDIA_ROOT/<projectSlug>/
+      3) Open a Pull Request back to GITHUB_BASE_BRANCH
+
+    Requirements:
+      - GITHUB_TOKEN env var with repo content and PR write permissions
+      - httpx installed
+      - Branch protection may require manual review of the PR
+    """
+    headers = cors_headers(request.headers.get("origin"))
+    # require_admin(authorization)
+
+    if not HTTPX_AVAILABLE:
+        raise HTTPException(status_code=500, detail="httpx library not available for GitHub uploads")
+    if not GITHUB_TOKEN:
+        raise HTTPException(status_code=500, detail="GITHUB_TOKEN not configured on the API server")
+
+    # sanitize slug/path
+    slug = re.sub(r"[^a-z0-9-_]", "-", projectSlug.lower()).strip("-")
+    if not slug:
+        raise HTTPException(status_code=400, detail="Invalid projectSlug")
+
+    if len(files) == 0 or len(files) > MAX_FILES:
+        raise HTTPException(status_code=400, detail=f"Must upload 1-{MAX_FILES} files")
+
+    total_size = 0
+    to_commit: List[Tuple[str, bytes, str]] = []  # (path, content, mime)
+
+    for file in files:
+        content = await file.read()
+        size = len(content)
+        ext = _ext(file.filename or "")
+
+        if ext not in ALLOWED_EXTENSIONS:
+            raise HTTPException(status_code=400, detail=f"Unsupported extension: {ext or '(none)'}")
+        if not _mime_is_allowed(file.content_type or "application/octet-stream"):
+            raise HTTPException(status_code=400, detail=f"Unsupported content-type: {file.content_type}")
+        if size > MAX_FILE_SIZE:
+            raise HTTPException(status_code=400, detail=f"{file.filename} exceeds {MAX_FILE_SIZE} bytes")
+        total_size += size
+        if total_size > MAX_TOTAL_SIZE:
+            raise HTTPException(status_code=400, detail=f"Total upload size exceeds {MAX_TOTAL_SIZE} bytes")
+
+        safe_name = re.sub(r"[^A-Za-z0-9._-]", "-", file.filename or "file")
+        rel_path = f"{GITHUB_MEDIA_ROOT}/{slug}/{safe_name}"
+        to_commit.append((rel_path, content, file.content_type or "application/octet-stream"))
+
+    branch = f"media/{slug}/{int(time.time())}"
+    repo_api = f"https://api.github.com/repos/{GITHUB_REPO}"
+    auth_hdr = {"authorization": f"Bearer {GITHUB_TOKEN}", "accept": "application/vnd.github+json"}
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            # 1) Get base branch SHA
+            ref_res = await client.get(f"{repo_api}/git/ref/heads/{GITHUB_BASE_BRANCH}", headers=auth_hdr)
+            if ref_res.status_code != 200:
+                raise HTTPException(status_code=500, detail=f"Failed to get base ref: {ref_res.text}")
+            base_sha = ref_res.json()["object"]["sha"]
+
+            # 2) Create new branch
+            create_ref = await client.post(
+                f"{repo_api}/git/refs",
+                headers=auth_hdr,
+                json={"ref": f"refs/heads/{branch}", "sha": base_sha},
+            )
+            if create_ref.status_code not in (200, 201):
+                # If branch exists, continue
+                if create_ref.status_code != 422:
+                    raise HTTPException(status_code=500, detail=f"Failed to create branch: {create_ref.text}")
+
+            # 3) Commit each file (PUT contents)
+            for rel_path, content, _mime in to_commit:
+                import base64
+
+                b64 = base64.b64encode(content).decode("ascii")
+                put_res = await client.put(
+                    f"{repo_api}/contents/{rel_path}",
+                    headers=auth_hdr,
+                    json={
+                        "message": f"chore(media): add {rel_path} for {slug}",
+                        "content": b64,
+                        "branch": branch,
+                    },
+                )
+                if put_res.status_code not in (200, 201):
+                    raise HTTPException(status_code=500, detail=f"Failed to commit {rel_path}: {put_res.text}")
+
+            # 4) Open PR
+            pr_title = f"Add media for {slug}: {title}"
+            pr_body = (description or "").strip() or "Automated media upload."
+            pr_res = await client.post(
+                f"{repo_api}/pulls",
+                headers=auth_hdr,
+                json={
+                    "title": pr_title,
+                    "head": branch,
+                    "base": GITHUB_BASE_BRANCH,
+                    "body": pr_body,
+                    "maintainer_can_modify": True,
+                },
+            )
+            if pr_res.status_code not in (200, 201):
+                raise HTTPException(status_code=500, detail=f"Failed to create PR: {pr_res.text}")
+            pr = pr_res.json()
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"GitHub upload failed: {str(e)}")
+
+    # Build a minimal item record mirroring /api/media so the UI can display immediately if desired
+    web_urls = [f"https://raw.githubusercontent.com/{GITHUB_REPO}/{branch}/{p}" for p, _, _ in to_commit]
+    item = {
+        "id": str(uuid.uuid4()),
+        "kind": "project",
+        "title": title,
+        "description": description or None,
+        "files": [
+            {
+                "url": u,
+                "name": p.split("/")[-1],
+                "type": "application/octet-stream",
+                "size": len(c),
+            }
+            for (p, c, _m), u in zip(to_commit, web_urls)
+        ],
+        "markdownFiles": [],
+        "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "pullRequestUrl": pr.get("html_url"),
+        "branch": branch,
+    }
+
+    return JSONResponse(item, status_code=201, headers=headers)
