@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 from typing import Any, Dict, Optional
 from datetime import datetime, timezone, timedelta
+import re
 
 from fastapi import FastAPI, Request, HTTPException, Header
 from fastapi.responses import JSONResponse
@@ -153,16 +154,36 @@ def build_rrule(body: Dict[str, Any]) -> Optional[list[str]]:
         parts.append(f"COUNT={int(rep['count'])}")
 
     if rep.get("until"):
-        # Google accepts UTC-like "YYYYMMDDTHHMMSSZ" or date "YYYYMMDD"
-        u = str(rep["until"]).replace("-", "").replace(":", "")
-        if "T" in u:
-            # Already date-time-ish: ensure trailing Z if not present
-            if not u.endswith("Z"):
-                u += "Z"
-        else:
-            # Plain date like 20251231
-            pass
-        parts.append(f"UNTIL={u}")
+        raw = str(rep["until"]).strip()
+        # Accept date-only (YYYY-MM-DD) or ISO datetime with/without seconds and with Z or offset
+        try:
+            # Date-only
+            try:
+                d = datetime.strptime(raw, "%Y-%m-%d")
+                parts.append(f"UNTIL={d.strftime('%Y%m%d')}")
+            except ValueError:
+                # Datetime path: ensure it parses and convert to UTC
+                iso = raw
+                # Replace trailing Z with +00:00 for fromisoformat compatibility
+                if iso.endswith("Z"):
+                    iso = iso[:-1] + "+00:00"
+                # If time portion lacks seconds (e.g., HH:MM or HH:MM+/-HH:MM), insert :00
+                # Match patterns like YYYY-MM-DDTHH:MM(+ZZ:ZZ)? or ...THH:MM
+                if re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}([+-]\d{2}:\d{2})?$", iso):
+                    # Insert :00 at the right place (before timezone or end)
+                    if "+" in iso[16:] or "-" in iso[16:]:
+                        # Has timezone, insert seconds before zone
+                        iso = re.sub(r"^(.*T\d{2}:\d{2})(?=[+-]\d{2}:\d{2}$)", r"\1:00", iso)
+                    else:
+                        iso = iso + ":00"
+                dt = datetime.fromisoformat(iso)
+                if dt.tzinfo is None:
+                    # Assume naive means UTC
+                    dt = dt.replace(tzinfo=timezone.utc)
+                dt = dt.astimezone(timezone.utc)
+                parts.append(f"UNTIL={dt.strftime('%Y%m%dT%H%M%SZ')}")
+        except Exception:
+            raise HTTPException(status_code=400, detail="repeat.until must be YYYY-MM-DD or ISO datetime")
 
     return [f"RRULE:{';'.join(parts)}"] if parts else None
 
@@ -325,4 +346,14 @@ async def create_event(request: Request, authorization: str | None = Header(defa
             headers=headers,
         )
     except HttpError as err:
-        return JSONResponse({"error": str(err)}, status_code=500, headers=headers)
+        # Surface Google error details if available
+        payload = {"error": str(err)}
+        try:
+            if hasattr(err, "content") and err.content:
+                import json as _json
+                detail = _json.loads(err.content.decode("utf-8"))
+                if detail:
+                    payload["detail"] = detail
+        except Exception:
+            pass
+        return JSONResponse(payload, status_code=500, headers=headers)
