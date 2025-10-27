@@ -160,9 +160,14 @@ class MediaItem(BaseModel):
 # CORS / Auth
 # --------------------------------------------------------------------------------------
 def cors_headers(origin: Optional[str]) -> Dict[str, str]:
-    ok = bool(origin) and (ALLOWED_ORIGIN == "*" or origin == ALLOWED_ORIGIN)
+    # Support comma-separated list and wildcard, default permissive for smoother DX
+    allowed_raw = os.environ.get("ALLOWED_ORIGIN", "*")
+    allowed_list = [o.strip() for o in allowed_raw.split(",") if o.strip()]
+    is_wildcard = any(o == "*" for o in allowed_list)
+    ok = bool(origin) and (is_wildcard or (origin in allowed_list))
+
     return {
-        "Access-Control-Allow-Origin": origin if ok else ("*" if ALLOWED_ORIGIN == "*" else ""),
+        "Access-Control-Allow-Origin": "*" if is_wildcard else ((origin or "") if ok else ""),
         "Vary": "Origin",
         "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type,Authorization",
@@ -523,7 +528,7 @@ async def upload_media_to_github(
       - Branch protection may require manual review of the PR
     """
     headers = cors_headers(request.headers.get("origin"))
-    # require_admin(authorization)
+    require_admin(authorization)
 
     if not HTTPX_AVAILABLE:
         raise HTTPException(status_code=500, detail="httpx library not available for GitHub uploads")
