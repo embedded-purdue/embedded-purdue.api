@@ -1,0 +1,27 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "index.py",
+      "use": "@vercel/python",
+      "config": {
+        "maxLambdaSize": "15mb"
+      }
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "index.py"
+    }
+  ],
+  "env": {
+    "ADMIN_TOKEN": "@admin_token",
+    "GOOGLE_CALENDAR_ID": "@google_calendar_id",
+    "GOOGLE_CLIENT_EMAIL": "@google_client_email",
+    "GOOGLE_PRIVATE_KEY": "@google_private_key",
+    "BLOB_READ_WRITE_TOKEN": "@blob_read_write_token",
+    "ALLOWED_ORIGIN": "@allowed_origin",
+    "REDIS_URL": "@redis_url"
+  }
+}
