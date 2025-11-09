@@ -5,8 +5,13 @@ from pydantic import BaseModel
 
 app = FastAPI()
 
+class User(BaseModel):
+    username: str
+    user_id: int
+
 class Request(BaseModel):
     projname: str
+    owner_id: int 
     price: float
     link: str
 
