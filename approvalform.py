@@ -19,6 +19,10 @@ class Request(BaseModel):
 def update_user(username: str, user_id: int):
     return {"username": username, "user_id": user_id}
 
+@app.get("/items/{item_id}")
+def get_item(user_id: int, item: Request):
+    return {"item_name": item.projname, "item_id": item.owner_id, "price": item.price, "link": item.link}
+
 @app.put("/items/{item_id}")
-def update_item(item_id: int, item: Request):
-    return {"item_name": item.projname, "item_id": item_id}
+def update_item(user_id: int, item: Request):
+    return {"item_name": item.projname, "item_id": item.owner_id}
