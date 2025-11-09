@@ -17,4 +17,4 @@ class Request(BaseModel):
 
 @app.put("/items/{item_id}")
 def update_item(item_id: int, item: Request):
-    return {"item_name": item.name, "item_id": item_id}
+    return {"item_name": item.projname, "item_id": item_id}
