@@ -15,6 +15,10 @@ class Request(BaseModel):
     price: float
     link: str
 
+@app.get("user/{user_id}")
+def update_user(username: str, user_id: int):
+    return {"username": username, "user_id": user_id}
+
 @app.put("/items/{item_id}")
 def update_item(item_id: int, item: Request):
     return {"item_name": item.projname, "item_id": item_id}
