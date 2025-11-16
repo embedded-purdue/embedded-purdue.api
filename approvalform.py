@@ -11,6 +11,7 @@ class User(BaseModel):
 
 class Request(BaseModel):
     projname: str
+    item_id: int
     owner_id: int 
     price: float
     link: str
@@ -25,4 +26,4 @@ def get_item(user_id: int, item: Request):
 
 @app.put("/items/{item_id}")
 def update_item(user_id: int, item: Request):
-    return {"item_name": item.projname, "item_id": item.owner_id}
+    return {"item_name": item.projname, "item_id": item.owner_id, "price": item.price, "link": item.link}
