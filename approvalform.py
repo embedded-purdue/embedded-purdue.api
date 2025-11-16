@@ -1,29 +1,32 @@
-from typing import Union
-
 from fastapi import FastAPI
 from pydantic import BaseModel
 
 app = FastAPI()
 
-class User(BaseModel):
-    username: str
-    user_id: int
-
 class Request(BaseModel):
     projname: str
-    item_id: int
     owner_id: int 
     price: float
     link: str
 
-@app.get("user/{user_id}")
-def update_user(username: str, user_id: int):
-    return {"username": username, "user_id": user_id}
+items = []
+next_id = 1
 
-@app.get("/items/{item_id}")
-def get_item(user_id: int, item: Request):
-    return {"item_name": item.projname, "item_id": item.owner_id, "price": item.price, "link": item.link}
+@app.post("/items")
+def create_item(item: Request):
+    global next_id
+    item_record = {
+        "item_id": next_id,
+        **item.dict()
+    }
+    items.append(item_record)
+    next_id += 1
+    return item_record
 
-@app.put("/items/{item_id}")
-def update_item(user_id: int, item: Request):
-    return {"item_name": item.projname, "item_id": item.owner_id, "price": item.price, "link": item.link}
+@app.get("/items")
+def list_items():
+    return items
+
+@app.get("/items/by-owner/{owner_id}")
+def items_for_user(owner_id: int):
+    return [i for i in items if i["owner_id"] == owner_id]
