@@ -1,0 +1,150 @@
+
+      {view === "media" && (
+      <section className="grid gap-4 rounded-xl border border-border bg-card p-6 shadow-sm">
+        <h2 className="text-2xl font-semibold">Upload Media</h2>
+  <form className="grid gap-3" onSubmit={handleUploadMedia}>
+          {/* Type toggle: Project vs Workshop */}
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            <label className="grid gap-1">
+              <span className="text-sm text-muted-foreground">Type</span>
+              <select
+                className="rounded-md border border-border bg-background p-2"
+                value={uploadKind}
+                onChange={(e) => setUploadKind(e.target.value as any)}
+              >
+                <option value="project">Project</option>
+                <option value="workshop">Workshop</option>
+              </select>
+            </label>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            {uploadKind === "project" ? (
+              <div className="grid gap-2">
+                <label className="grid gap-1">
+                  <span className="text-sm text-muted-foreground">Project Slug</span>
+                  <select
+                    className="rounded-md border border-border bg-background p-2"
+                    value={projectSlug}
+                    onChange={(e) => setProjectSlug(e.target.value)}
+                    required
+                  >
+                    <option value="">Select a project…</option>
+                    {projectSlugOptions.map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                  <span className="text-xs text-muted-foreground">Files will be committed under public/projects/&lt;slug&gt;/</span>
+                </label>
+                <div className="text-xs text-muted-foreground">
+                  <button type="button" className="underline" onClick={() => { setInitOpen((v) => !v); setInitStatus(""); }}>Create new project</button>
+                </div>
+              </div>
+            ) : (
+              <div className="grid gap-2">
+                <label className="grid gap-1">
+                  <span className="text-sm text-muted-foreground">Workshop Slug</span>
+                  <select
+                    className="rounded-md border border-border bg-background p-2"
+                    value={workshopSlug}
+                    onChange={(e) => setWorkshopSlug(e.target.value)}
+                    required
+                  >
+                    <option value="">Select a workshop…</option>
+                    {workshopSlugOptions.map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                  <span className="text-xs text-muted-foreground">Markdown goes to content/workshops, images to public/workshops/&lt;slug&gt;/</span>
+                </label>
+                <div className="text-xs text-muted-foreground">
+                  <button type="button" className="underline" onClick={() => { setInitOpen((v) => !v); setInitStatus(""); }}>Create new workshop</button>
+                </div>
+              </div>
+            )}
+            <label className="grid gap-1 md:col-span-2">
+              <span className="text-sm text-muted-foreground">Title</span>
+              <input
+                className="rounded-md border border-border bg-background p-2"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                required
+              />
+            </label>
+          </div>
+
+          {initOpen && (
+            <form className="grid gap-2 rounded-md border border-dashed border-border p-3" onSubmit={handleInitSlugSubmit}>
+              <div className="text-sm font-medium">Initialize new {uploadKind}</div>
+              <div className="grid gap-2 md:grid-cols-3">
+                <label className="grid gap-1">
+                  <span className="text-xs text-muted-foreground">Slug</span>
+                  <input className="rounded-md border border-border bg-background p-2" value={initSlug} onChange={(e) => setInitSlug(e.target.value)} placeholder={uploadKind === "project" ? "e.g., smart-watch" : "e.g., intro-to-xyz"} required />
+                </label>
+                <label className="grid gap-1 md:col-span-2">
+                  <span className="text-xs text-muted-foreground">Title (optional)</span>
+                  <input className="rounded-md border border-border bg-background p-2" value={initTitle} onChange={(e) => setInitTitle(e.target.value)} placeholder="Display title" />
+                </label>
+              </div>
+              <label className="grid gap-1">
+                <span className="text-xs text-muted-foreground">Description (optional)</span>
+                <textarea className="min-h-[80px] rounded-md border border-border bg-background p-2" value={initDesc} onChange={(e) => setInitDesc(e.target.value)} />
+              </label>
+              <div className="flex items-center gap-2">
+                <button disabled={initBusy || !initSlug} className="rounded-md border border-border px-3 py-2 text-sm disabled:opacity-60">{initBusy ? "Creating…" : "Create"}</button>
+                {initStatus && <span className="text-xs text-muted-foreground">{initStatus}</span>}
+              </div>
+            </form>
+          )}
+
+          <label className="grid gap-1">
+            <span className="text-sm text-muted-foreground">Description (optional)</span>
+            <textarea
+              className="min-h-[100px] rounded-md border border-border bg-background p-2"
+              value={desc}
+              onChange={(e) => setDesc(e.target.value)}
+            />
+          </label>
+
+          <label className="grid gap-1">
+            <span className="text-sm text-muted-foreground">
+              Files (images, videos, PDFs, markdown, code, CSV, HTML)
+            </span>
+            <input
+              id="media-files"
+              type="file"
+              accept={[
+                "image/*",
+                "video/mp4",
+                "video/webm",
+                "application/pdf",
+                "text/markdown,.md,.mdx,.markdown",
+                "text/csv,.csv",
+                "application/json,.json",
+                "text/plain,.txt,.log",
+                "text/html,.html,.htm",
+                "text/css,.css,.scss",
+                ".ts,.tsx,.js,.jsx,.py,.c,.cpp,.hpp,.h,.ino,.rs,.go,.java,.kt,.swift,.sh,.bash,.zsh",
+                ".yaml,.yml,.toml",
+              ].join(",")}
+              multiple
+              onChange={(e) => setFiles(e.target.files)}
+              className="rounded-md border border-border bg-background p-2"
+            />
+          </label>
+
+          <button disabled={mediaBusy || !title || !files || files.length === 0 || !((uploadKind === "project" && projectSlug) || (uploadKind === "workshop" && workshopSlug))} className="rounded-md bg-primary px-4 py-2 font-semibold text-primary-foreground disabled:opacity-60">
+            {mediaBusy ? "Uploading…" : "Upload"}
+          </button>
+          {mediaStatus && <p className="text-sm text-muted-foreground">{mediaStatus}</p>}
+          {prUrl && (
+            <p className="text-sm">
+              <a className="text-primary underline" href={prUrl} target="_blank" rel="noreferrer">
+                View Pull Request
+              </a>
+            </p>
+          )}
+        </form>
+      </section>
+      )}
+    </main>
